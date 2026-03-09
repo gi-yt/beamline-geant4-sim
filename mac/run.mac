@@ -1,0 +1,14 @@
+# Macro file for batch mode
+
+/control/verbose 0
+/run/verbose 0
+/event/verbose 0
+/tracking/verbose 0
+
+/analysis/setFileName neutron_dose_output
+
+/run/initialize
+
+/gun/energy 10 GeV
+
+/run/beamOn 1000

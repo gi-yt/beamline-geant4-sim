@@ -1,0 +1,4 @@
+# run.mac
+/run/initialize
+/beam/setEnergy 10
+/run/beamOn 1000

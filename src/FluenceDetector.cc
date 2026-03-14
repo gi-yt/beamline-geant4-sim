@@ -10,37 +10,51 @@
 #include <cmath>
 #include <algorithm>
 
+const EnergyCoefficient ICRP74_ISO[] = {
+    {1e-9, 1.29}, {1e-8, 1.56}, {2.5e-8, 1.76}, {1e-7, 2.26},
+    {2e-7, 2.54}, {5e-7, 2.92}, {1e-6, 3.15}, {2e-6, 3.32},
+    {5e-6, 3.47}, {1e-5, 3.52}, {2e-5, 3.54}, {5e-5, 3.55},
+    {1e-4, 3.54}, {2e-4, 3.52}, {5e-4, 3.47}, {0.001, 3.46},
+    {0.002, 3.48}, {0.005, 3.66}, {0.01, 4.19}, {0.02, 5.61},
+    {0.03, 7.18}, {0.05, 10.4}, {0.07, 13.7}, {0.1, 18.6},
+    {0.15, 26.6}, {0.2, 34.4}, {0.3, 49.4}, {0.5, 77.1},
+    {0.7, 102}, {0.9, 126}, {1.0, 137}, {1.2, 153},
+    {1.5, 174}, {2.0, 203}, {3.0, 244}, {4.0, 271},
+    {5.0, 290}, {6.0, 303}, {7.0, 313}, {8.0, 321},
+    {9.0, 327}, {10.0, 332}, {12.0, 339}, {14.0, 344},
+    {15.0, 346}, {16.0, 347}, {18.0, 350}, {20.0, 352},
+    {21.0, 353}, {30.0, 358}, {50.0, 371}, {75.0, 387},
+    {100, 397}, {130, 407}, {150, 412}, {180, 421},
+    {200, 426}, {300, 455}, {400, 488}, {500, 521},
+    {600, 553}, {700, 580}, {800, 602}, {900, 620},
+    {1000, 635}, {2000, 750}, {3000, 820}, {4000, 860},
+    {5000, 890}
+};
+
+const G4int fNumCoeffs = sizeof(ICRP74_ISO) / sizeof(ICRP74_ISO[0]);
+
 FluenceDetector::FluenceDetector(G4String name)
-    : G4VSensitiveDetector(name), 
-      fTotalTrackLength(0.0),
-      fDetectorVolume(1.0)
+    : G4VSensitiveDetector(name), fTotalTrackLength(0.0)
 {
     InitializeEnergyBins();
-    G4cout << "FluenceDetector created for NEUTRON-ONLY fluence measurement with " 
-           << fEnergyBinEdges.size()-1 << " energy bins" << G4endl;
 }
 
-FluenceDetector::~FluenceDetector()
-{
-}
+FluenceDetector::~FluenceDetector() {}
 
 void FluenceDetector::InitializeEnergyBins()
 {
-    // 34 energy groups from thermal to 5 GeV
-    G4double binEdges[] = {
+    G4double binEdges[fNumBins+1] = {
         1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1,
         0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
         2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
-        20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 5000.0
+        20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 5000.0, 10000.0
     };
     
-    G4int numBins = sizeof(binEdges) / sizeof(binEdges[0]) - 1;
+    fEnergyBinEdges.assign(binEdges, binEdges + fNumBins + 1);
+    fEnergyBinCenters.resize(fNumBins);
+    fTrackLengthPerBin.assign(fNumBins, 0.0);
     
-    fEnergyBinEdges.assign(binEdges, binEdges + numBins + 1);
-    fEnergyBinCenters.resize(numBins);
-    fTrackLengthPerBin.assign(numBins, 0.0);
-    
-    for (G4int i = 0; i < numBins; i++) {
+    for (G4int i = 0; i < fNumBins; i++) {
         fEnergyBinCenters[i] = std::sqrt(fEnergyBinEdges[i] * fEnergyBinEdges[i+1]);
     }
 }
@@ -50,20 +64,16 @@ G4int FluenceDetector::FindEnergyBin(G4double energyMeV) const
     auto it = std::upper_bound(fEnergyBinEdges.begin(), fEnergyBinEdges.end(), energyMeV);
     G4int bin = std::distance(fEnergyBinEdges.begin(), it) - 1;
     if (bin < 0) bin = 0;
-    if (bin >= (G4int)fTrackLengthPerBin.size()) bin = fTrackLengthPerBin.size() - 1;
+    if (bin >= fNumBins) bin = fNumBins - 1;
     return bin;
 }
 
-void FluenceDetector::Initialize(G4HCofThisEvent*)
-{
-    // Called at start of each event
-}
+void FluenceDetector::Initialize(G4HCofThisEvent*) {}
 
 void FluenceDetector::ResetCounters()
 {
     fTotalTrackLength = 0.0;
     std::fill(fTrackLengthPerBin.begin(), fTrackLengthPerBin.end(), 0.0);
-    G4cout << "FluenceDetector counters reset" << G4endl;
 }
 
 G4bool FluenceDetector::ProcessHits(G4Step* step, G4TouchableHistory*)
@@ -73,11 +83,6 @@ G4bool FluenceDetector::ProcessHits(G4Step* step, G4TouchableHistory*)
     G4Track* track = step->GetTrack();
     if (!track) return false;
 
-    // Print ALL particles entering fluence detector
-  
-    G4cout << track->GetDefinition()->GetParticleName() << G4endl;
-    G4cout << "Energy: " << track->GetKineticEnergy() / MeV << " MeV" << G4endl;
-
     if (track->GetDefinition() != G4Neutron::NeutronDefinition()) {
         return false;
     }
@@ -85,19 +90,15 @@ G4bool FluenceDetector::ProcessHits(G4Step* step, G4TouchableHistory*)
     G4double stepLength = step->GetStepLength() / cm;
     if (stepLength <= 0) return false;
 
-    fTotalTrackLength += stepLength;
-
     G4double neutronEnergy = track->GetKineticEnergy() / MeV;
+    
+    // SIMPLE: Direct accumulation
+    fTotalTrackLength += stepLength;
+    
     G4int bin = FindEnergyBin(neutronEnergy);
     fTrackLengthPerBin[bin] += stepLength;
-
-    G4cout << "!!! NEUTRON in fluence detector: E=" << neutronEnergy
-        << " MeV, Step=" << stepLength << " cm" << G4endl;
 
     return true;
 }
 
-void FluenceDetector::EndOfEvent(G4HCofThisEvent*)
-{
-    // Processing done in RunAction
-}
+void FluenceDetector::EndOfEvent(G4HCofThisEvent*) {}
